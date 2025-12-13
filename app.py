@@ -36,7 +36,6 @@ DATA_FILE = "groups.json"
 LOCK_FILE = f"{DATA_FILE}.lock"
 
 
-
 def load_data():
     """Carrega os grupos salvos do arquivo JSON.
 
@@ -68,7 +67,6 @@ def load_data():
         return {}
 
 
-
 def save_data(data: dict) -> None:
     """Salva o dicionário de grupos no arquivo JSON usando lock.
 
@@ -89,24 +87,32 @@ def save_data(data: dict) -> None:
         st.error("Não foi possível salvar os dados.")
 
 
-
 def hash_password(password: str) -> str:
-    """Retorna o hash SHA‑256 da senha fornecida."""
+    """Retorna o hash SHA‑266 da senha fornecida."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-
 def get_group_id() -> str | None:
-    """Lê o parâmetro `group_id` da URL, se existir.
+    """Retorna o valor do parâmetro ``group_id`` na URL, se existir.
 
-    Returns:
-        O identificador do grupo ou None se o parâmetro não existir.
+    A API ``st.query_params`` é a forma recomendada de acessar os
+    parâmetros de query a partir do Streamlit 1.30.0. Ela se comporta
+    como um dicionário onde as chaves e valores são strings.  Caso o
+    parâmetro ``group_id`` não exista, retorna ``None``.
     """
-    query_params = st.experimental_get_query_params()
-    # O parâmetro pode ser uma lista (por suportar múltiplos valores),
-    # portanto pegamos o primeiro elemento.
-    return query_params.get("group_id", [None])[0]
-
+    try:
+        # A partir do Streamlit 1.30.0 é possível acessar os parâmetros via
+        # ``st.query_params``.  Este objeto retorna o último valor quando
+        # existem múltiplos valores para a mesma chave.  Se o atributo
+        # não estiver disponível (versões antigas), fazemos um fallback
+        # para a função experimental.
+        params = st.query_params
+        return params.get("group_id")
+    except Exception:
+        # Fallback: API experimental (ainda disponível em algumas versões)
+        query_params = st.experimental_get_query_params()
+        # ``experimental_get_query_params`` retorna listas para cada chave.
+        return query_params.get("group_id", [None])[0]
 
 
 def show_group_page(group_id: str, data: dict) -> None:
@@ -224,12 +230,14 @@ def show_home_page(data: dict) -> None:
                 }
                 save_data(data)
                 # Construir link para compartilhar
-                # Recupera a URL base (sem parâmetros de query)
-                current_url = st.experimental_get_url()
-                base_url = current_url.split("?")[0]
-                # Monta a URL com o parâmetro group_id
-                params = urlencode({"group_id": gid})
-                group_link = f"{base_url}?{params}"
+                # Construir link para compartilhamento com o parâmetro group_id.
+                # A função `st.experimental_get_url` foi removida nas versões
+                # mais recentes do Streamlit. Como alternativa simples,
+                # apresentamos apenas a query string `?group_id=...`. Ao
+                # clicar neste link, o navegador mantém a URL atual e
+                # adiciona o parâmetro, funcionando tanto localmente
+                # quanto no Streamlit Cloud.
+                group_link = f"?group_id={gid}"
                 st.success("Grupo criado com sucesso!")
                 st.markdown(
                     "Compartilhe este link com os participantes para que confirmem a participação:",
@@ -246,7 +254,6 @@ def show_home_page(data: dict) -> None:
         aplicativo estiver ativo.
         """
     )
-
 
 
 def main() -> None:
