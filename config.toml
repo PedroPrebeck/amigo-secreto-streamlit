@@ -1,0 +1,13 @@
+[theme]
+# Tema de alto contraste e texto maior para facilitar a leitura.
+# Consulte as recomendações de design para pessoas idosas sobre legibilidade e contrastes altos【464455027679169†L87-L96】【952070812029059†L41-L60】.
+base = "light"
+primaryColor = "#0052cc"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F4F4"
+textColor = "#000000"
+baseFontSize = 20
+font = "sans-serif"
+
+[theme.sidebar]
+baseFontSize = 20

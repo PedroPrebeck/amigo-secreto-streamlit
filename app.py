@@ -1,17 +1,14 @@
-"""
-Aplicativo de Amigo Secreto em Streamlit
-=======================================
-
-Este aplicativo permite criar um grupo de amigo secreto, confirmar a
-participação dos integrantes, realizar o sorteio e cada participante
-pode descobrir quem é seu amigo secreto usando sua senha. Todos os
-dados são armazenados localmente em um arquivo JSON (`groups.json`).
-
-Para utilizar em produção (por exemplo no Streamlit Community
-Cloud), lembre‑se de que os dados persistem apenas enquanto o
-aplicativo permanecer ativo. Para armazenamento mais robusto, use um
-banco de dados externo.
-"""
+# Aplicativo de Amigo Secreto
+#
+# Este aplicativo permite criar grupos de amigo secreto de forma
+# simples e direta. As pessoas se inscrevem com seus nomes e uma
+# senha curta (não reutilize senhas reais) e o sorteio pode ser
+# realizado quando todos confirmarem ou pelo próprio criador do
+# grupo, que possui uma senha de criador. Os dados são
+# armazenados localmente em ``groups.json`` enquanto o aplicativo
+# estiver em execução.  Em implementações na nuvem, como o
+# Streamlit Community Cloud, o armazenamento persiste apenas enquanto
+# a aplicação permanece ativa.
 
 import hashlib
 import json
@@ -40,13 +37,8 @@ def load_data():
     """Carrega os grupos salvos do arquivo JSON.
 
     Se o arquivo não existir ou estiver vazio, retorna um dicionário
-    vazio.
-    """
-    """Carrega o dicionário de grupos do arquivo JSON utilizando lock.
-
-    O uso de `FileLock` garante que o arquivo não seja lido ao mesmo tempo
-    em que está sendo escrito por outro processo. Caso `filelock` não
-    esteja disponível, a leitura é feita sem bloqueio.
+    vazio.  Quando disponível, utiliza ``FileLock`` para garantir
+    exclusividade de leitura enquanto outro processo escreve.
     """
     if not os.path.exists(DATA_FILE):
         return {}
@@ -70,7 +62,7 @@ def load_data():
 def save_data(data: dict) -> None:
     """Salva o dicionário de grupos no arquivo JSON usando lock.
 
-    Se o módulo `filelock` estiver disponível, utiliza um lock para
+    Se o módulo ``filelock`` estiver disponível, utiliza um lock para
     garantir que a escrita seja atômica, evitando corrupção de dados
     quando várias pessoas usam o app simultaneamente.
     """
@@ -88,7 +80,7 @@ def save_data(data: dict) -> None:
 
 
 def hash_password(password: str) -> str:
-    """Retorna o hash SHA‑266 da senha fornecida."""
+    """Retorna o hash SHA‑256 da senha fornecida."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 
@@ -118,27 +110,38 @@ def get_group_id() -> str | None:
 def show_group_page(group_id: str, data: dict) -> None:
     """Exibe a página de um grupo específico.
 
-    Mostra o status dos participantes, permite confirmar participação,
-    sortear os amigos secretos e revela o amigo secreto de cada
-    participante.
+    A página do grupo mostra quem já confirmou participação, permite
+    confirmar sua presença, sortear os amigos secretos e descobrir
+    quem você tirou. Para manter a experiência simples para pessoas
+    mais velhas, usamos textos diretos e instruções claras.
     """
     group = data.get(group_id)
     if not group:
         st.error("Grupo não encontrado.")
         return
 
-    st.header(f"Grupo: {group['name']}")
+    st.title(f"Grupo: {group['name']}")
 
     total = len(group["participants"])
     confirmed = len(group["participants_confirmed"])
-    st.write(f"{confirmed}/{total} participantes confirmados")
+    st.markdown(f"**{confirmed}/{total}** participantes já confirmaram")
+
+    # Orientações simples para os participantes
+    st.markdown(
+        """
+        ### Como participar?
+        1. Selecione seu nome na lista e defina uma senha simples (não utilize a mesma senha de outros serviços).
+        2. Clique em **Confirmar**. Você verá uma mensagem avisando que sua participação foi registrada.
+        3. Aguarde o sorteio. Após o sorteio, retorne a esta página para descobrir quem você tirou.
+        """
+    )
 
     # Formulário para confirmar participação
     with st.form("confirm_form", clear_on_submit=True):
         st.subheader("Confirmar participação")
-        name = st.selectbox("Seu nome:", options=group["participants"])
+        name = st.selectbox("Seu nome", options=group["participants"])
         password = st.text_input(
-            "Escolha uma senha (não reutilize senhas reais)", type="password"
+            "Defina uma senha", type="password", placeholder="Digite uma senha fácil de lembrar"
         )
         confirm_button = st.form_submit_button("Confirmar")
         if confirm_button:
@@ -156,26 +159,32 @@ def show_group_page(group_id: str, data: dict) -> None:
         if group.get("drawn", False):
             st.success("Sorteio já realizado!")
         else:
-            if st.button("Sortear Amigo Secreto"):
+            if st.button("Sortear automaticamente", key=f"sortear_{group_id}"):
                 names = group["participants"]
-                assignments = names.copy()
-                # Embaralhar até que ninguém tire a si mesmo
-                attempts = 0
-                max_attempts = 1000
-                while True:
-                    random.shuffle(assignments)
-                    if all(assignments[i] != names[i] for i in range(len(names))):
-                        break
-                    attempts += 1
-                    if attempts > max_attempts:
-                        st.error("Não foi possível realizar o sorteio. Tente novamente.")
-                        return
-                group["assignments"] = {
-                    names[i]: assignments[i] for i in range(len(names))
-                }
-                group["drawn"] = True
-                save_data(data)
-                st.success("Sorteio realizado! Agora cada participante pode ver seu amigo secreto.")
+                if len(names) < 2:
+                    st.error("É necessário ao menos 2 participantes para sortear.")
+                else:
+                    assignments = names.copy()
+                    attempts = 0
+                    max_attempts = 1000
+                    while True:
+                        random.shuffle(assignments)
+                        if all(assignments[i] != names[i] for i in range(len(names))):
+                            break
+                        attempts += 1
+                        if attempts > max_attempts:
+                            st.error(
+                                "Não foi possível realizar o sorteio. Tente novamente."
+                            )
+                            return
+                    group["assignments"] = {
+                        names[i]: assignments[i] for i in range(len(names))
+                    }
+                    group["drawn"] = True
+                    save_data(data)
+                    st.success(
+                        "Sorteio realizado! Agora cada participante pode ver seu amigo secreto."
+                    )
 
     # Formulário para revelar o amigo secreto
     if group.get("drawn", False):
@@ -203,62 +212,159 @@ def show_group_page(group_id: str, data: dict) -> None:
                     else:
                         st.error("Sorteio ainda não foi realizado.")
 
+    # Painel do criador: permite sortear a qualquer momento e adicionar participantes
+    st.markdown("---")
+    with st.expander("Painel do criador", expanded=False):
+        st.markdown(
+            "**Somente o criador do grupo** pode sortear antes de todos confirmarem ou adicionar pessoas. Informe a senha abaixo para acessar estas funções."
+        )
+        # Campo para senha do criador (não deve ser armazenado em estado)
+        creator_pw_input = st.text_input(
+            "Senha do criador", type="password", key=f"creator_pw_{group_id}"
+        )
+
+        # Botão para sortear agora, independentemente de confirmações
+        if st.button(
+            "Sortear agora (criador)", key=f"creator_sort_{group_id}"
+        ):
+            if not creator_pw_input:
+                st.warning("Digite a senha do criador para sortear.")
+            elif "creator_password_hash" not in group:
+                st.error("Este grupo não possui senha de criador.")
+            elif hash_password(creator_pw_input) != group["creator_password_hash"]:
+                st.error("Senha do criador incorreta.")
+            elif group.get("drawn", False):
+                st.warning("O sorteio já foi realizado.")
+            elif len(group["participants"]) < 2:
+                st.error("É necessário ao menos 2 participantes para sortear.")
+            else:
+                # realizar sorteio
+                names = group["participants"]
+                assignments = names.copy()
+                attempts = 0
+                max_attempts = 1000
+                while True:
+                    random.shuffle(assignments)
+                    if all(assignments[i] != names[i] for i in range(len(names))):
+                        break
+                    attempts += 1
+                    if attempts > max_attempts:
+                        st.error(
+                            "Não foi possível realizar o sorteio. Tente novamente."
+                        )
+                        return
+                group["assignments"] = {
+                    names[i]: assignments[i] for i in range(len(names))
+                }
+                group["drawn"] = True
+                save_data(data)
+                st.success(
+                    "Sorteio realizado! Agora cada participante pode ver seu amigo secreto."
+                )
+
+        # Campo para adicionar novo participante
+        new_participant = st.text_input(
+            "Adicionar novo participante", key=f"new_participant_{group_id}"
+        )
+        if st.button(
+            "Adicionar participante", key=f"add_participant_{group_id}"
+        ):
+            if not creator_pw_input:
+                st.warning("Digite a senha do criador para adicionar participantes.")
+            elif "creator_password_hash" not in group:
+                st.error("Este grupo não possui senha de criador.")
+            elif hash_password(creator_pw_input) != group["creator_password_hash"]:
+                st.error("Senha do criador incorreta.")
+            elif group.get("drawn", False):
+                st.warning("Não é possível adicionar participantes após o sorteio.")
+            else:
+                name_to_add = new_participant.strip()
+                if not name_to_add:
+                    st.warning("Informe o nome do novo participante.")
+                elif name_to_add in group["participants"]:
+                    st.warning("Este participante já está no grupo.")
+                else:
+                    group["participants"].append(name_to_add)
+                    save_data(data)
+                    st.success(f"{name_to_add} adicionado ao grupo.")
+
 
 def show_home_page(data: dict) -> None:
-    """Exibe a página inicial para criação de novos grupos."""
-    st.header("Criar novo grupo de Amigo Secreto")
+    """Exibe a página inicial para criação de novos grupos.
+
+    A página inicial orienta o organizador a montar um grupo de amigo secreto
+    em poucos passos. Utilizamos textos simples e uma lista de etapas
+    para facilitar o preenchimento.
+    """
+    st.title("Organizar Amigo Secreto")
+    st.markdown(
+        """
+        ### Como funciona?
+        1. Informe o **nome do grupo** (por exemplo, "Natal 2025").
+        2. Defina uma **senha do criador**. Somente quem possui essa senha
+           poderá realizar o sorteio ou adicionar novas pessoas.
+        3. Liste os participantes, colocando **um nome por linha**.
+        4. Clique em **Criar grupo** e depois compartilhe o link gerado com seus amigos.
+        """
+    )
     with st.form("create_form"):
         group_name = st.text_input("Nome do grupo")
+        creator_password_input = st.text_input(
+            "Senha do criador", type="password", placeholder="Digite uma senha fácil de lembrar"
+        )
         participants_input = st.text_area(
-            "Nomes dos participantes (um por linha)", height=150
+            "Nomes dos participantes (um por linha)", height=150,
+            placeholder="Exemplo:\nAna\nBruno\nCarlos"
         )
         create_button = st.form_submit_button("Criar grupo")
         if create_button:
             participants = [p.strip() for p in participants_input.splitlines() if p.strip()]
             if not group_name:
                 st.warning("Por favor, informe o nome do grupo.")
+            elif not creator_password_input.strip():
+                st.warning("Por favor, defina uma senha para o criador.")
             elif len(participants) < 2:
                 st.warning("É necessário ao menos 2 participantes.")
             else:
                 gid = uuid.uuid4().hex
                 data[gid] = {
                     "name": group_name,
+                    "creator_password_hash": hash_password(creator_password_input),
                     "participants": participants,
                     "participants_confirmed": {},
                     "drawn": False,
                     "assignments": {},
                 }
                 save_data(data)
-                # Construir link para compartilhar
-                # Construir link para compartilhamento com o parâmetro group_id.
-                # A função `st.experimental_get_url` foi removida nas versões
-                # mais recentes do Streamlit. Como alternativa simples,
-                # apresentamos apenas a query string `?group_id=...`. Ao
-                # clicar neste link, o navegador mantém a URL atual e
-                # adiciona o parâmetro, funcionando tanto localmente
-                # quanto no Streamlit Cloud.
+                # Construir link para compartilhar: usamos apenas a query string
+                # ?group_id=... para que o navegador mantenha a URL base.
                 group_link = f"?group_id={gid}"
                 st.success("Grupo criado com sucesso!")
                 st.markdown(
-                    "Compartilhe este link com os participantes para que confirmem a participação:",
-                    help="Qualquer pessoa com o link poderá acessar o grupo",
+                    "**Compartilhe este link com os participantes para que confirmem a participação:**"
                 )
                 st.write(f"[{group_link}]({group_link})")
 
     st.markdown("---")
-    st.markdown(
-        """
-        Este aplicativo foi desenvolvido com [Streamlit](https://streamlit.io).\
-        Os dados são armazenados localmente; em uma implantação no
-        Streamlit Community Cloud, o armazenamento dura enquanto o
-        aplicativo estiver ativo.
-        """
+    st.caption(
+        "Este aplicativo usa dados locais enquanto estiver aberto. Não reutilize suas senhas reais."
     )
 
 
 def main() -> None:
-    """Função principal que controla a navegação entre páginas."""
-    st.set_page_config(page_title="Amigo Secreto", page_icon="🎁")
+    """Função principal que controla a navegação entre páginas.
+
+    Configura o layout da página para centralizar o conteúdo e mantém a
+    barra lateral recolhida por padrão para evitar distrações. Em
+    seguida, decide qual página mostrar com base no parâmetro
+    ``group_id``.
+    """
+    st.set_page_config(
+        page_title="Amigo Secreto",
+        page_icon="🎁",
+        layout="centered",
+        initial_sidebar_state="collapsed",
+    )
     data = load_data()
 
     group_id = get_group_id()
