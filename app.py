@@ -428,18 +428,21 @@ def show_group_page(group_id: str, data: dict) -> None:
                 "Use com cuidado. As ações abaixo pedem uma confirmação extra para evitar toques acidentais."
             )
     
-            col_fix1, col_fix2 = st.columns(2)
-            with col_fix1:
+            clear_container = st.container()
+            with clear_container:
                 participant_to_clear = st.selectbox(
                     "Quem precisa confirmar de novo?",
                     options=group["participants"],
                     key=f"clear_confirm_select_{group_id}",
                 )
                 confirm_clear = st.checkbox(
-                    "Eu entendi que essa pessoa vai precisar refazer a confirmação.",
-                    key=f"confirm_clear_{group_id}",
+                    "Confirmar limpeza", key=f"confirm_clear_{group_id}"
                 )
-                if st.button("Limpar confirmação", key=f"clear_confirm_btn_{group_id}"):
+                if st.button(
+                    "Limpar confirmação",
+                    key=f"clear_confirm_btn_{group_id}",
+                    use_container_width=True,
+                ):
                     if not confirm_clear:
                         st.info("Marque a caixa para confirmar a limpeza.")
                     else:
@@ -454,13 +457,17 @@ def show_group_page(group_id: str, data: dict) -> None:
                         st.success(
                             f"Confirmação apagada. {participant_to_clear} precisará confirmar novamente com uma nova senha."
                         )
-    
-            with col_fix2:
+
+            reset_container = st.container()
+            with reset_container:
                 reset_confirm = st.checkbox(
-                    "Quero apagar o sorteio atual e começar de novo.",
-                    key=f"reset_draw_check_{group_id}",
+                    "Confirmar reset do sorteio", key=f"reset_draw_check_{group_id}"
                 )
-                if st.button("Resetar sorteio", key=f"reset_draw_btn_{group_id}"):
+                if st.button(
+                    "Resetar sorteio",
+                    key=f"reset_draw_btn_{group_id}",
+                    use_container_width=True,
+                ):
                     if not reset_confirm:
                         st.info("Marque a caixa acima para confirmar o reset.")
                     else:
@@ -501,8 +508,8 @@ def show_group_page(group_id: str, data: dict) -> None:
                 "Use estas opções para recuperar o acesso do criador ou gerar uma senha temporária para quem perdeu a própria senha."
             )
     
-            sec_col1, sec_col2 = st.columns(2)
-            with sec_col1:
+            creator_pw_container = st.container()
+            with creator_pw_container:
                 st.markdown("**Redefinir senha do criador**")
                 new_creator_password = st.text_input(
                     "Nova senha do criador", type="password", key=f"new_creator_pw_{group_id}"
@@ -510,7 +517,11 @@ def show_group_page(group_id: str, data: dict) -> None:
                 confirm_creator_password = st.text_input(
                     "Repita a nova senha", type="password", key=f"confirm_creator_pw_{group_id}"
                 )
-                if st.button("Atualizar senha do criador", key=f"update_creator_pw_{group_id}"):
+                if st.button(
+                    "Salvar senha do criador",
+                    key=f"update_creator_pw_{group_id}",
+                    use_container_width=True,
+                ):
                     if not new_creator_password.strip():
                         st.warning("A nova senha do criador não pode ser vazia.")
                     elif new_creator_password != confirm_creator_password:
@@ -521,8 +532,9 @@ def show_group_page(group_id: str, data: dict) -> None:
                         st.success(
                             "Senha do criador atualizada. Guarde a nova senha e compartilhe apenas com quem ajudará a administrar o grupo."
                         )
-    
-            with sec_col2:
+
+            temp_pw_container = st.container()
+            with temp_pw_container:
                 st.markdown("**Gerar senha temporária para participante**")
                 participant_to_reset = st.selectbox(
                     "Escolha o participante", options=group["participants"], key=f"reset_select_{group_id}"
@@ -532,20 +544,30 @@ def show_group_page(group_id: str, data: dict) -> None:
                     key=f"custom_temp_{group_id}",
                     placeholder="Deixe em branco para gerar automaticamente",
                 )
-                if st.button("Reiniciar acesso do participante", key=f"reset_pw_{group_id}"):
-                    temp_password = custom_temp_password.strip() or generate_temp_password()
-                    group["participants_confirmed"].pop(participant_to_reset, None)
-                    group["pending_passwords"][participant_to_reset] = hash_password(
-                        temp_password
-                    )
-                    save_data(data)
-                    st.success(
-                        f"A confirmação de {participant_to_reset} foi reiniciada e a senha antiga foi invalidada."
-                    )
-                    st.info(
-                        f"Copie e envie esta senha para {participant_to_reset}: **{temp_password}**. \n"
-                        "Ela precisará usar essa senha para confirmar a participação novamente."
-                    )
+                confirm_temp_reset = st.checkbox(
+                    "Confirmar reinício", key=f"confirm_temp_reset_{group_id}"
+                )
+                if st.button(
+                    "Reiniciar acesso",
+                    key=f"reset_pw_{group_id}",
+                    use_container_width=True,
+                ):
+                    if not confirm_temp_reset:
+                        st.info("Marque a confirmação para reiniciar o acesso.")
+                    else:
+                        temp_password = custom_temp_password.strip() or generate_temp_password()
+                        group["participants_confirmed"].pop(participant_to_reset, None)
+                        group["pending_passwords"][participant_to_reset] = hash_password(
+                            temp_password
+                        )
+                        save_data(data)
+                        st.success(
+                            f"A confirmação de {participant_to_reset} foi reiniciada e a senha antiga foi invalidada."
+                        )
+                        st.info(
+                            f"Copie e envie esta senha para {participant_to_reset}: **{temp_password}**. \n"
+                            "Ela precisará usar essa senha para confirmar a participação novamente."
+                        )
     
             st.markdown("---")
             st.subheader("Gerenciar participantes")
@@ -553,8 +575,8 @@ def show_group_page(group_id: str, data: dict) -> None:
                 "Use esta área com cuidado. Renomear ou excluir alguém antes do sorteio atualiza imediatamente as listas do grupo."
             )
     
-            col1, col2 = st.columns(2)
-            with col1:
+            rename_container = st.container()
+            with rename_container:
                 selected_to_rename = st.selectbox(
                     "Quem você quer renomear?",
                     options=group["participants"],
@@ -565,8 +587,17 @@ def show_group_page(group_id: str, data: dict) -> None:
                     key=f"rename_input_{group_id}",
                     placeholder="Digite o novo nome",
                 )
-                if st.button("Renomear participante", key=f"rename_btn_{group_id}"):
-                    if group.get("drawn", False):
+                confirm_rename = st.checkbox(
+                    "Confirmar mudança de nome", key=f"confirm_rename_{group_id}"
+                )
+                if st.button(
+                    "Renomear",
+                    key=f"rename_btn_{group_id}",
+                    use_container_width=True,
+                ):
+                    if not confirm_rename:
+                        st.info("Marque a confirmação para renomear.")
+                    elif group.get("drawn", False):
                         st.warning("Não é possível renomear após o sorteio.")
                     else:
                         cleaned_name = new_name.strip()
@@ -596,18 +627,22 @@ def show_group_page(group_id: str, data: dict) -> None:
                             st.success(
                                 f"{selected_to_rename} agora se chama {cleaned_name}. Atualizamos as confirmações e o sorteio."
                             )
-    
-            with col2:
+
+            remove_container = st.container()
+            with remove_container:
                 selected_to_remove = st.selectbox(
                     "Quem você quer excluir?",
                     options=group["participants"],
                     key=f"remove_select_{group_id}",
                 )
                 confirm_delete = st.checkbox(
-                    "Estou ciente de que esta ação remove a pessoa do grupo",
-                    key=f"confirm_remove_{group_id}",
+                    "Confirmar exclusão", key=f"confirm_remove_{group_id}"
                 )
-                if st.button("Excluir participante", key=f"remove_btn_{group_id}"):
+                if st.button(
+                    "Excluir participante",
+                    key=f"remove_btn_{group_id}",
+                    use_container_width=True,
+                ):
                     if group.get("drawn", False):
                         st.warning("Não é possível excluir participantes após o sorteio.")
                     elif not confirm_delete:
