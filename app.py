@@ -274,6 +274,98 @@ def show_group_page(group_id: str, data: dict) -> None:
                     "Sorteio realizado! Agora cada participante pode ver seu amigo secreto."
                 )
 
+        st.markdown("---")
+        st.subheader("Ajustes do grupo")
+        st.caption(
+            "Aqui você corrige nomes ou refaz o sorteio quando alguém erra a senha. As mensagens são simples para evitar enganos."
+        )
+
+        new_group_name = st.text_input(
+            "Editar nome do grupo",
+            value=group["name"],
+            key=f"rename_group_{group_id}",
+            help="Use um nome fácil de reconhecer."
+        )
+        if st.button("Salvar novo nome", key=f"save_group_name_{group_id}"):
+            cleaned_group_name = new_group_name.strip()
+            if not creator_pw_input:
+                st.warning("Digite a senha do criador para alterar o nome.")
+            elif "creator_password_hash" not in group:
+                st.error("Este grupo não possui senha de criador.")
+            elif hash_password(creator_pw_input) != group["creator_password_hash"]:
+                st.error("Senha do criador incorreta.")
+            elif not cleaned_group_name:
+                st.warning("O nome do grupo não pode ficar vazio.")
+            else:
+                group["name"] = cleaned_group_name
+                save_data(data)
+                st.success("Nome do grupo atualizado com sucesso.")
+
+        st.markdown("---")
+        st.subheader("Ajustar confirmações")
+        st.caption(
+            "Use com cuidado. As ações abaixo pedem uma confirmação extra para evitar toques acidentais."
+        )
+
+        col_fix1, col_fix2 = st.columns(2)
+        with col_fix1:
+            participant_to_clear = st.selectbox(
+                "Quem precisa confirmar de novo?",
+                options=group["participants"],
+                key=f"clear_confirm_select_{group_id}",
+            )
+            confirm_clear = st.checkbox(
+                "Eu entendi que essa pessoa vai precisar refazer a confirmação.",
+                key=f"confirm_clear_{group_id}",
+            )
+            if st.button("Limpar confirmação", key=f"clear_confirm_btn_{group_id}"):
+                if not creator_pw_input:
+                    st.warning("Digite a senha do criador para limpar a confirmação.")
+                elif "creator_password_hash" not in group:
+                    st.error("Este grupo não possui senha de criador.")
+                elif hash_password(creator_pw_input) != group["creator_password_hash"]:
+                    st.error("Senha do criador incorreta.")
+                elif not confirm_clear:
+                    st.info("Marque a caixa para confirmar a limpeza.")
+                else:
+                    group["participants_confirmed"].pop(participant_to_clear, None)
+                    group["pending_passwords"].pop(participant_to_clear, None)
+                    # Remove vínculos de sorteio para evitar confusão
+                    group["assignments"].pop(participant_to_clear, None)
+                    group["assignments"] = {
+                        k: v for k, v in group["assignments"].items() if v != participant_to_clear
+                    }
+                    save_data(data)
+                    st.success(
+                        f"Confirmação apagada. {participant_to_clear} precisará confirmar novamente com uma nova senha."
+                    )
+
+        with col_fix2:
+            reset_confirm = st.checkbox(
+                "Quero apagar o sorteio atual e começar de novo.",
+                key=f"reset_draw_check_{group_id}",
+            )
+            if st.button("Resetar sorteio", key=f"reset_draw_btn_{group_id}"):
+                if not creator_pw_input:
+                    st.warning("Digite a senha do criador para resetar o sorteio.")
+                elif "creator_password_hash" not in group:
+                    st.error("Este grupo não possui senha de criador.")
+                elif hash_password(creator_pw_input) != group["creator_password_hash"]:
+                    st.error("Senha do criador incorreta.")
+                elif not reset_confirm:
+                    st.info("Marque a caixa acima para confirmar o reset.")
+                else:
+                    group["assignments"] = {}
+                    group["drawn"] = False
+                    save_data(data)
+                    st.success(
+                        "Sorteio apagado. Você pode confirmar ajustes e sortear novamente com calma."
+                    )
+
+        st.markdown("---")
+        st.subheader("Adicionar participante")
+        st.caption("Inclua novas pessoas apenas se ainda não houver sorteio concluído.")
+
         # Campo para adicionar novo participante
         new_participant = st.text_input(
             "Adicionar novo participante", key=f"new_participant_{group_id}"
