@@ -288,6 +288,95 @@ def show_group_page(group_id: str, data: dict) -> None:
                     save_data(data)
                     st.success(f"{name_to_add} adicionado ao grupo.")
 
+        st.markdown("---")
+        st.subheader("Gerenciar participantes")
+        st.caption(
+            "Use esta área com cuidado. Renomear ou excluir alguém antes do sorteio atualiza imediatamente as listas do grupo."
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_to_rename = st.selectbox(
+                "Quem você quer renomear?",
+                options=group["participants"],
+                key=f"rename_select_{group_id}",
+            )
+            new_name = st.text_input(
+                "Novo nome",
+                key=f"rename_input_{group_id}",
+                placeholder="Digite o novo nome",
+            )
+            if st.button("Renomear participante", key=f"rename_btn_{group_id}"):
+                if not creator_pw_input:
+                    st.warning("Digite a senha do criador para renomear.")
+                elif "creator_password_hash" not in group:
+                    st.error("Este grupo não possui senha de criador.")
+                elif hash_password(creator_pw_input) != group["creator_password_hash"]:
+                    st.error("Senha do criador incorreta.")
+                elif group.get("drawn", False):
+                    st.warning("Não é possível renomear após o sorteio.")
+                else:
+                    cleaned_name = new_name.strip()
+                    if not cleaned_name:
+                        st.warning("Informe o novo nome do participante.")
+                    elif cleaned_name in group["participants"]:
+                        st.warning("Já existe alguém com este nome no grupo.")
+                    else:
+                        idx = group["participants"].index(selected_to_rename)
+                        group["participants"][idx] = cleaned_name
+                        if selected_to_rename in group["participants_confirmed"]:
+                            group["participants_confirmed"][cleaned_name] = group[
+                                "participants_confirmed"
+                            ].pop(selected_to_rename)
+                        if selected_to_rename in group["assignments"]:
+                            group["assignments"][cleaned_name] = group[
+                                "assignments"
+                            ].pop(selected_to_rename)
+                        for key, value in list(group["assignments"].items()):
+                            if value == selected_to_rename:
+                                group["assignments"][key] = cleaned_name
+                        save_data(data)
+                        st.success(
+                            f"{selected_to_rename} agora se chama {cleaned_name}. Atualizamos as confirmações e o sorteio."
+                        )
+
+        with col2:
+            selected_to_remove = st.selectbox(
+                "Quem você quer excluir?",
+                options=group["participants"],
+                key=f"remove_select_{group_id}",
+            )
+            confirm_delete = st.checkbox(
+                "Estou ciente de que esta ação remove a pessoa do grupo",
+                key=f"confirm_remove_{group_id}",
+            )
+            if st.button("Excluir participante", key=f"remove_btn_{group_id}"):
+                if not creator_pw_input:
+                    st.warning("Digite a senha do criador para excluir.")
+                elif "creator_password_hash" not in group:
+                    st.error("Este grupo não possui senha de criador.")
+                elif hash_password(creator_pw_input) != group["creator_password_hash"]:
+                    st.error("Senha do criador incorreta.")
+                elif group.get("drawn", False):
+                    st.warning("Não é possível excluir participantes após o sorteio.")
+                elif not confirm_delete:
+                    st.info("Marque a caixa de confirmação para evitar exclusões acidentais.")
+                else:
+                    group["participants"] = [
+                        p for p in group["participants"] if p != selected_to_remove
+                    ]
+                    group["participants_confirmed"].pop(selected_to_remove, None)
+                    group["assignments"].pop(selected_to_remove, None)
+                    group["assignments"] = {
+                        k: v
+                        for k, v in group["assignments"].items()
+                        if v != selected_to_remove
+                    }
+                    save_data(data)
+                    st.success(
+                        f"{selected_to_remove} foi removido do grupo. As listas de confirmação e sorteio foram atualizadas."
+                    )
+
 
 def show_home_page(data: dict) -> None:
     """Exibe a página inicial para criação de novos grupos.
