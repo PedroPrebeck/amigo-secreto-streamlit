@@ -262,39 +262,35 @@ def show_group_page(group_id: str, data: dict) -> None:
     confirmed = len(group["participants_confirmed"])
     st.markdown(f"**{confirmed}/{total}** participantes já confirmaram")
 
-    # Orientações simples para os participantes
+    st.markdown("### Como participar")
     st.markdown(
-        """
-        ### Como participar?
-        1. Selecione seu nome na lista e defina uma senha simples (não utilize a mesma senha de outros serviços).
-        2. Clique em **Confirmar**. Você verá uma mensagem avisando que sua participação foi registrada.
-        3. Aguarde o sorteio. Após o sorteio, retorne a esta página para descobrir quem você tirou.
-        """
+        "Escolha seu nome, confirme com uma senha curta e aguarde o sorteio. Depois use a mesma senha para ver quem tirou."
     )
 
-    # Formulário para confirmar participação
-    with st.form("confirm_form", clear_on_submit=True):
-        st.subheader("Confirmar participação")
-        name = st.selectbox("Seu nome", options=group["participants"])
-        password = st.text_input(
-            "Defina uma senha", type="password", placeholder="Digite uma senha fácil de lembrar"
-        )
-        confirm_button = st.form_submit_button("Confirmar")
-        if confirm_button:
-            if name in group["participants_confirmed"]:
-                st.warning("Você já confirmou sua participação.")
-            elif not password.strip():
-                st.warning("A senha não pode ser vazia.")
-            elif name in group["pending_passwords"] and hash_password(password) != group["pending_passwords"][name]:
-                st.error(
-                    "Use a nova senha enviada pelo anfitrião para concluir a confirmação."
-                )
-            else:
-                group["participants_confirmed"][name] = hash_password(password)
-                group["pending_passwords"].pop(name, None)
-                save_data(data)
-                st.success("Participação confirmada! Aguarde o sorteio.")
+    st.subheader("Sua participação")
+    name = st.selectbox("Seu nome", options=group["participants"], key=f"participant_{group_id}")
+    confirmed_hash = group["participants_confirmed"].get(name)
+    draw_done = group.get("drawn", False)
 
+    if confirmed_hash is None:
+        with st.form(f"confirm_flow_{group_id}", clear_on_submit=True):
+            password = st.text_input(
+                "Crie uma senha", type="password", placeholder="Senha curta só para este grupo"
+            )
+            confirm_button = st.form_submit_button("Confirmar")
+            if confirm_button:
+                if not password.strip():
+                    st.warning("A senha não pode ser vazia.")
+                elif name in group["pending_passwords"] and hash_password(password) != group["pending_passwords"][name]:
+                    st.error("Use a nova senha enviada pelo anfitrião.")
+                else:
+                    group["participants_confirmed"][name] = hash_password(password)
+                    group["pending_passwords"].pop(name, None)
+                    save_data(data)
+                    st.success("Participação confirmada. Aguarde o sorteio.")
+    elif not draw_done:
+        st.info("Você já confirmou. Aguarde o sorteio.")
+    
     # Botão para sortear se todos confirmaram e ainda não foi sorteado
     if confirmed == total:
         if group.get("drawn", False):
@@ -327,29 +323,23 @@ def show_group_page(group_id: str, data: dict) -> None:
                         "Sorteio realizado! Agora cada participante pode ver seu amigo secreto."
                     )
 
-    # Formulário para revelar o amigo secreto
-    if group.get("drawn", False):
-        with st.form("reveal_form", clear_on_submit=True):
-            st.subheader("Descobrir seu Amigo Secreto")
-            name_lookup = st.selectbox(
-                "Seu nome:", options=group["participants"], key="reveal_name"
-            )
+    if draw_done:
+        with st.form(f"reveal_flow_{group_id}", clear_on_submit=True):
+            st.subheader("Ver seu Amigo Secreto")
             password_lookup = st.text_input(
-                "Sua senha:", type="password", key="reveal_password"
+                "Sua senha", type="password", key=f"reveal_password_{group_id}"
             )
             reveal_button = st.form_submit_button("Mostrar")
             if reveal_button:
-                stored_hash = group["participants_confirmed"].get(name_lookup)
+                stored_hash = group["participants_confirmed"].get(name)
                 if stored_hash is None:
                     st.error("Você ainda não confirmou participação.")
                 elif hash_password(password_lookup) != stored_hash:
                     st.error("Senha incorreta.")
                 else:
-                    amigo = group["assignments"].get(name_lookup)
+                    amigo = group["assignments"].get(name)
                     if amigo:
-                        st.success(
-                            f"Seu amigo secreto é: **{amigo}**. Não conte a ninguém!"
-                        )
+                        st.success(f"Seu amigo secreto é: **{amigo}**.")
                     else:
                         st.error("Sorteio ainda não foi realizado.")
 
