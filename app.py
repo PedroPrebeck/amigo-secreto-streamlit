@@ -36,10 +36,15 @@ if pyperclip_spec:
 else:
     pyperclip = None
 
-
 # Nome do arquivo onde os grupos são armazenados.
 DATA_FILE = "groups.json"
 LOCK_FILE = f"{DATA_FILE}.lock"
+
+# URL pública padrão usada como fallback quando não conseguimos detectar
+# o endereço base automaticamente (ex.: em implantações no Streamlit
+# Cloud). Pode ser sobrescrita com as variáveis de ambiente
+# ``PUBLIC_BASE_URL`` ou ``BASE_URL``.
+DEFAULT_PUBLIC_BASE_URL = "https://amigo-miyazaki.streamlit.app/~/+"
 
 
 def load_data():
@@ -104,8 +109,9 @@ def resolve_base_url(request: object | None) -> str:
     Primeiro tenta usar ``st.secrets['BASE_URL']`` para ambientes onde o
     endereço já é conhecido. Se não estiver definido, faz uma detecção a
     partir de ``st.request`` (quando disponível), considerando cabeçalhos
-    comuns em proxies. Caso não seja possível determinar, retorna uma
-    string vazia para permitir um fallback para links relativos.
+    comuns em proxies. Caso não seja possível determinar, utiliza um
+    endereço público padrão configurável para garantir que o link gerado
+    seja completo.
     """
 
     secret_base = (
@@ -113,8 +119,11 @@ def resolve_base_url(request: object | None) -> str:
         if hasattr(st, "secrets") and isinstance(st.secrets, Mapping)
         else None
     )
+    env_base = os.getenv("PUBLIC_BASE_URL") or os.getenv("BASE_URL")
     if isinstance(secret_base, str) and secret_base.strip():
         return secret_base.rstrip("/")
+    if env_base and env_base.strip():
+        return env_base.rstrip("/")
 
     if request is not None:
         try:
@@ -141,7 +150,7 @@ def resolve_base_url(request: object | None) -> str:
         except Exception:
             return ""
 
-    return ""
+    return DEFAULT_PUBLIC_BASE_URL.rstrip("/")
 
 
 def build_full_group_link(group_id: str) -> str:
@@ -161,11 +170,21 @@ def build_full_group_link(group_id: str) -> str:
         except Exception:
             path = ""
 
-    if base_url:
-        cleaned_path = f"/{(path.lstrip('/') if path else '').lstrip('/')}"
-        return f"{base_url}{cleaned_path}?group_id={group_id}"
+    parsed_base = urlparse(base_url)
+    base_without_path = parsed_base._replace(path="", params="", query="", fragment="").geturl().rstrip("/")
+    base_path = parsed_base.path or ""
 
-    return f"?group_id={group_id}"
+    if not path and base_path:
+        path = base_path
+    elif not path:
+        path = "/~/+"
+
+    cleaned_path = f"/{(path.lstrip('/') if path else '').lstrip('/')}" if path else ""
+
+    if base_without_path:
+        return f"{base_without_path}{cleaned_path}?group_id={group_id}"
+
+    return f"{cleaned_path or '?'}?group_id={group_id}" if cleaned_path else f"?group_id={group_id}"
 
 
 def render_share_link(link: str, key_prefix: str) -> None:
@@ -693,19 +712,43 @@ def show_home_page(data: dict) -> None:
         )
         create_button = st.form_submit_button("Criar grupo")
         if create_button:
-            participants = [p.strip() for p in participants_input.splitlines() if p.strip()]
+            normalized_participants: list[str] = []
+            duplicate_names: set[str] = set()
+            seen_normalized: set[str] = set()
+
+            for raw_participant in participants_input.splitlines():
+                cleaned = " ".join(raw_participant.split())
+                if not cleaned:
+                    continue
+
+                normalized = cleaned.title()
+                normalized_lower = normalized.lower()
+
+                if normalized_lower in seen_normalized:
+                    duplicate_names.add(normalized)
+                    continue
+
+                seen_normalized.add(normalized_lower)
+                normalized_participants.append(normalized)
+
             if not group_name:
                 st.warning("Por favor, informe o nome do grupo.")
             elif not creator_password_input.strip():
                 st.warning("Por favor, defina uma senha para o criador.")
-            elif len(participants) < 2:
-                st.warning("É necessário ao menos 2 participantes.")
+            elif duplicate_names:
+                duplicates_list = ", ".join(sorted(duplicate_names))
+                st.warning(
+                    "Nomes duplicados encontrados (ignora maiúsculas/minúsculas): "
+                    f"{duplicates_list}. Ajuste a lista antes de criar o grupo."
+                )
+            elif len(normalized_participants) < 2:
+                st.warning("É necessário ao menos 2 participantes válidos.")
             else:
                 gid = uuid.uuid4().hex
                 data[gid] = {
                     "name": group_name,
                     "creator_password_hash": hash_password(creator_password_input),
-                    "participants": participants,
+                    "participants": normalized_participants,
                     "participants_confirmed": {},
                     "pending_passwords": {},
                     "drawn": False,
