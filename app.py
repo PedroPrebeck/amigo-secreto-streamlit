@@ -11,10 +11,13 @@
 # a aplicação permanece ativa.
 
 import hashlib
+import importlib.util
 import json
 import os
 import random
 import uuid
+from collections.abc import Mapping
+from urllib.parse import urlparse
 
 import streamlit as st
 
@@ -25,6 +28,13 @@ try:
     from filelock import FileLock
 except ImportError:
     FileLock = None  # fallback se a dependência não estiver instalada
+
+
+pyperclip_spec = importlib.util.find_spec("pyperclip")
+if pyperclip_spec:
+    import pyperclip
+else:
+    pyperclip = None
 
 
 # Nome do arquivo onde os grupos são armazenados.
@@ -88,6 +98,102 @@ def generate_temp_password() -> str:
     return uuid.uuid4().hex[:8]
 
 
+def resolve_base_url(request: object | None) -> str:
+    """Obtém a URL base a partir do host atual ou do ``st.secrets``.
+
+    Primeiro tenta usar ``st.secrets['BASE_URL']`` para ambientes onde o
+    endereço já é conhecido. Se não estiver definido, faz uma detecção a
+    partir de ``st.request`` (quando disponível), considerando cabeçalhos
+    comuns em proxies. Caso não seja possível determinar, retorna uma
+    string vazia para permitir um fallback para links relativos.
+    """
+
+    secret_base = (
+        st.secrets.get("BASE_URL")
+        if hasattr(st, "secrets") and isinstance(st.secrets, Mapping)
+        else None
+    )
+    if isinstance(secret_base, str) and secret_base.strip():
+        return secret_base.rstrip("/")
+
+    if request is not None:
+        try:
+            if hasattr(request, "base_url") and request.base_url:
+                return str(request.base_url).rstrip("/")
+
+            headers = getattr(request, "headers", {}) or {}
+            host = (
+                headers.get("host")
+                or headers.get("Host")
+                or headers.get("x-forwarded-host")
+                or headers.get("X-Forwarded-Host")
+            )
+            scheme = (
+                headers.get("x-forwarded-proto")
+                or headers.get("X-Forwarded-Proto")
+                or headers.get("x-forwarded-scheme")
+                or headers.get("X-Forwarded-Scheme")
+                or "https"
+            )
+
+            if host:
+                return f"{scheme}://{host}".rstrip("/")
+        except Exception:
+            return ""
+
+    return ""
+
+
+def build_full_group_link(group_id: str) -> str:
+    """Monta a URL completa para compartilhar um grupo."""
+
+    request = getattr(st, "request", None)
+    base_url = resolve_base_url(request)
+
+    path = ""
+    if request is not None:
+        try:
+            if hasattr(request, "path"):
+                path = request.path or ""
+            elif hasattr(request, "url"):
+                parsed_url = urlparse(str(request.url))
+                path = parsed_url.path
+        except Exception:
+            path = ""
+
+    if base_url:
+        cleaned_path = f"/{(path.lstrip('/') if path else '').lstrip('/')}"
+        return f"{base_url}{cleaned_path}?group_id={group_id}"
+
+    return f"?group_id={group_id}"
+
+
+def render_share_link(link: str, key_prefix: str) -> None:
+    """Exibe o link e oferece um botão para copiar com instruções simples."""
+
+    st.code(link, language="")
+    button_key = f"copy_link_{key_prefix}"
+    hint_key = f"copy_hint_{key_prefix}"
+
+    if pyperclip is not None:
+        if st.button("Copiar link", key=button_key):
+            try:
+                pyperclip.copy(link)
+                st.success("Link copiado para a área de transferência.")
+            except Exception:
+                st.info(
+                    "Copie manualmente: toque e segure o link no celular ou use Ctrl+C no computador."
+                )
+    else:
+        if st.button("Copiar link", key=button_key):
+            st.session_state[hint_key] = True
+
+        if st.session_state.get(hint_key):
+            st.write(
+                "No celular, toque e segure o link acima para copiar. No computador, use Ctrl+C."
+            )
+
+
 def get_group_id() -> str | None:
     """Retorna o valor do parâmetro ``group_id`` na URL, se existir.
 
@@ -128,6 +234,10 @@ def show_group_page(group_id: str, data: dict) -> None:
     group.setdefault("pending_passwords", {})
 
     st.title(f"Grupo: {group['name']}")
+
+    share_link = build_full_group_link(group_id)
+    st.markdown("**Link do grupo para compartilhar:**")
+    render_share_link(share_link, key_prefix=f"group_{group_id}")
 
     total = len(group["participants"])
     confirmed = len(group["participants_confirmed"])
@@ -248,7 +358,7 @@ def show_group_page(group_id: str, data: dict) -> None:
                     admin_flags[group_id] = True
                     st.session_state["admin_mode"] = admin_flags
                     st.success("Modo administrador ativado. As ações avançadas foram liberadas.")
-                    st.experimental_rerun()
+                    st.rerun()
 
         else:
             st.markdown("**Modo administrador ativo.** Use as opções abaixo com cuidado.")
@@ -256,7 +366,7 @@ def show_group_page(group_id: str, data: dict) -> None:
                 admin_flags.pop(group_id, None)
                 st.session_state["admin_mode"] = admin_flags
                 st.success("Você saiu do modo administrador.")
-                st.experimental_rerun()
+                st.rerun()
     
             # Botão para sortear agora, independentemente de confirmações
             if st.button(
@@ -567,14 +677,12 @@ def show_home_page(data: dict) -> None:
                     "assignments": {},
                 }
                 save_data(data)
-                # Construir link para compartilhar: usamos apenas a query string
-                # ?group_id=... para que o navegador mantenha a URL base.
-                group_link = f"?group_id={gid}"
+                group_link = build_full_group_link(gid)
                 st.success("Grupo criado com sucesso!")
                 st.markdown(
                     "**Compartilhe este link com os participantes para que confirmem a participação:**"
                 )
-                st.write(f"[{group_link}]({group_link})")
+                render_share_link(group_link, key_prefix=gid)
 
     st.markdown("---")
     st.caption(
