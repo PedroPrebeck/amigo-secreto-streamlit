@@ -15,7 +15,6 @@ import json
 import os
 import random
 import uuid
-from urllib.parse import urlencode
 
 import streamlit as st
 
@@ -84,6 +83,11 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 
+def generate_temp_password() -> str:
+    """Gera uma senha curta e aleatória para recuperações."""
+    return uuid.uuid4().hex[:8]
+
+
 def get_group_id() -> str | None:
     """Retorna o valor do parâmetro ``group_id`` na URL, se existir.
 
@@ -120,6 +124,9 @@ def show_group_page(group_id: str, data: dict) -> None:
         st.error("Grupo não encontrado.")
         return
 
+    # Garante compatibilidade com grupos criados antes do recurso de senhas temporárias
+    group.setdefault("pending_passwords", {})
+
     st.title(f"Grupo: {group['name']}")
 
     total = len(group["participants"])
@@ -149,8 +156,13 @@ def show_group_page(group_id: str, data: dict) -> None:
                 st.warning("Você já confirmou sua participação.")
             elif not password.strip():
                 st.warning("A senha não pode ser vazia.")
+            elif name in group["pending_passwords"] and hash_password(password) != group["pending_passwords"][name]:
+                st.error(
+                    "Use a nova senha enviada pelo anfitrião para concluir a confirmação."
+                )
             else:
                 group["participants_confirmed"][name] = hash_password(password)
+                group["pending_passwords"].pop(name, None)
                 save_data(data)
                 st.success("Participação confirmada! Aguarde o sorteio.")
 
@@ -289,6 +301,71 @@ def show_group_page(group_id: str, data: dict) -> None:
                     st.success(f"{name_to_add} adicionado ao grupo.")
 
         st.markdown("---")
+        st.subheader("Segurança e senhas")
+        st.caption(
+            "Use estas opções para recuperar o acesso do criador ou gerar uma senha temporária para quem perdeu a própria senha."
+        )
+
+        sec_col1, sec_col2 = st.columns(2)
+        with sec_col1:
+            st.markdown("**Redefinir senha do criador**")
+            new_creator_password = st.text_input(
+                "Nova senha do criador", type="password", key=f"new_creator_pw_{group_id}"
+            )
+            confirm_creator_password = st.text_input(
+                "Repita a nova senha", type="password", key=f"confirm_creator_pw_{group_id}"
+            )
+            if st.button("Atualizar senha do criador", key=f"update_creator_pw_{group_id}"):
+                if not creator_pw_input:
+                    st.warning("Digite a senha atual do criador para alterar.")
+                elif "creator_password_hash" not in group:
+                    st.error("Este grupo não possui senha de criador.")
+                elif hash_password(creator_pw_input) != group["creator_password_hash"]:
+                    st.error("Senha do criador incorreta.")
+                elif not new_creator_password.strip():
+                    st.warning("A nova senha do criador não pode ser vazia.")
+                elif new_creator_password != confirm_creator_password:
+                    st.warning("As novas senhas não conferem.")
+                else:
+                    group["creator_password_hash"] = hash_password(new_creator_password)
+                    save_data(data)
+                    st.success(
+                        "Senha do criador atualizada. Guarde a nova senha e compartilhe apenas com quem ajudará a administrar o grupo."
+                    )
+
+        with sec_col2:
+            st.markdown("**Gerar senha temporária para participante**")
+            participant_to_reset = st.selectbox(
+                "Escolha o participante", options=group["participants"], key=f"reset_select_{group_id}"
+            )
+            custom_temp_password = st.text_input(
+                "Senha temporária (opcional)",
+                key=f"custom_temp_{group_id}",
+                placeholder="Deixe em branco para gerar automaticamente",
+            )
+            if st.button("Reiniciar acesso do participante", key=f"reset_pw_{group_id}"):
+                if not creator_pw_input:
+                    st.warning("Digite a senha do criador para gerar a nova senha.")
+                elif "creator_password_hash" not in group:
+                    st.error("Este grupo não possui senha de criador.")
+                elif hash_password(creator_pw_input) != group["creator_password_hash"]:
+                    st.error("Senha do criador incorreta.")
+                else:
+                    temp_password = custom_temp_password.strip() or generate_temp_password()
+                    group["participants_confirmed"].pop(participant_to_reset, None)
+                    group["pending_passwords"][participant_to_reset] = hash_password(
+                        temp_password
+                    )
+                    save_data(data)
+                    st.success(
+                        f"A confirmação de {participant_to_reset} foi reiniciada e a senha antiga foi invalidada."
+                    )
+                    st.info(
+                        f"Copie e envie esta senha para {participant_to_reset}: **{temp_password}**. \n"
+                        "Ela precisará usar essa senha para confirmar a participação novamente."
+                    )
+
+        st.markdown("---")
         st.subheader("Gerenciar participantes")
         st.caption(
             "Use esta área com cuidado. Renomear ou excluir alguém antes do sorteio atualiza imediatamente as listas do grupo."
@@ -328,6 +405,10 @@ def show_group_page(group_id: str, data: dict) -> None:
                             group["participants_confirmed"][cleaned_name] = group[
                                 "participants_confirmed"
                             ].pop(selected_to_rename)
+                        if selected_to_rename in group["pending_passwords"]:
+                            group["pending_passwords"][cleaned_name] = group[
+                                "pending_passwords"
+                            ].pop(selected_to_rename)
                         if selected_to_rename in group["assignments"]:
                             group["assignments"][cleaned_name] = group[
                                 "assignments"
@@ -366,6 +447,7 @@ def show_group_page(group_id: str, data: dict) -> None:
                         p for p in group["participants"] if p != selected_to_remove
                     ]
                     group["participants_confirmed"].pop(selected_to_remove, None)
+                    group["pending_passwords"].pop(selected_to_remove, None)
                     group["assignments"].pop(selected_to_remove, None)
                     group["assignments"] = {
                         k: v
@@ -421,6 +503,7 @@ def show_home_page(data: dict) -> None:
                     "creator_password_hash": hash_password(creator_password_input),
                     "participants": participants,
                     "participants_confirmed": {},
+                    "pending_passwords": {},
                     "drawn": False,
                     "assignments": {},
                 }
